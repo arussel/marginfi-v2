@@ -175,34 +175,14 @@ describe("k05: Init Kamino banks", () => {
           bank: bank,
           signerTokenAccount: usr.tokenAAccount, // wrong
           lendingMarket: market,
-          reserve: ecosystem.tokenAMint.publicKey, // wrong
-          pythOracle: oracles.tokenAOracle.publicKey, // wrong
+          reserveLiquidityMint: ecosystem.tokenAMint.publicKey, // wrong
         },
         new BN(999)
       )
     );
     let result1 = await processBankrunTransaction(ctx, tx1, [usr.wallet], true);
-    // Generic AccountNotInitialized (reserve_liquidity_supply is uninitialized)
-    assertBankrunTxFailed(result1, 3012);
-
-    let tx2 = new Transaction().add(
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 2_000_000 }),
-      await makeInitObligationIx(
-        groupAdmin.mrgnBankrunProgram,
-        {
-          feePayer: usr.wallet.publicKey,
-          bank: bank,
-          signerTokenAccount: usr.usdcAccount,
-          lendingMarket: market,
-          reserve: usdcReserve,
-          pythOracle: oracles.tokenAOracle.publicKey, // wrong
-        },
-        new BN(999)
-      )
-    );
-    let result2 = await processBankrunTransaction(ctx, tx2, [usr.wallet], true);
-    // WrongOracleAccountKeys
-    assertBankrunTxFailed(result2, 6054);
+    // Generic ConstraintTokenMint
+    assertBankrunTxFailed(result1, 2014);
   });
 
   /*
@@ -244,8 +224,7 @@ describe("k05: Init Kamino banks", () => {
           bank: bank,
           signerTokenAccount: user.usdcAccount,
           lendingMarket: market,
-          reserve: usdcReserve,
-          pythOracle: oracles.usdcOracle.publicKey,
+          reserveLiquidityMint: ecosystem.usdcMint.publicKey,
         },
         new BN(nominalAmount)
       )
@@ -337,8 +316,7 @@ describe("k05: Init Kamino banks", () => {
           bank: tokenABankKey,
           signerTokenAccount: user.tokenAAccount,
           lendingMarket: market,
-          reserve: tokenAReserve,
-          pythOracle: oracles.tokenAOracle.publicKey,
+          reserveLiquidityMint: ecosystem.tokenAMint.publicKey,
         },
         new BN(nominalAmount)
       )

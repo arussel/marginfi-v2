@@ -127,8 +127,7 @@ describe("k10: Kamino Liquidation", () => {
         bank: kaminoUsdcBank,
         signerTokenAccount: groupAdmin.usdcAccount,
         lendingMarket: market,
-        reserve: usdcReserve,
-        pythOracle: oracles.usdcOracle.publicKey,
+        reserveLiquidityMint: ecosystem.usdcMint.publicKey,
       })
     );
     await processBankrunTx(ctx, tx, [groupAdmin.wallet]);
