@@ -306,6 +306,34 @@ export const configureBankOracle = (
   return ix;
 };
 
+export type EmissionsDepositArgs = {
+  bank: PublicKey;
+  mint: PublicKey;
+  fundingAccount: PublicKey;
+  depositor: PublicKey;
+  liquidityVault: PublicKey;
+  amount: BN;
+};
+
+export const lendingPoolEmissionsDeposit = (
+  program: Program<Marginfi>,
+  args: EmissionsDepositArgs
+) => {
+  const ix = program.methods
+    .lendingPoolEmissionsDeposit(args.amount)
+    .accounts({
+      bank: args.bank,
+      depositor: args.depositor,
+      // mint: args.mint,
+      emissionsFundingAccount: args.fundingAccount,
+      // liquidityVault: args.liquidityVault,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .instruction();
+
+  return ix;
+};
+
 // ************* Below this line, not yet included in package ****************
 
 export type InitGlobalFeeStateArgs = {
