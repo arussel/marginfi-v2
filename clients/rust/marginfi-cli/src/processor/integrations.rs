@@ -621,11 +621,7 @@ pub fn kamino_withdraw(
             instruction_sysvar_account: sysvar::instructions::ID,
         }
         .to_account_metas(Some(true)),
-        data: marginfi::instruction::KaminoWithdraw {
-            amount,
-            flags,
-        }
-        .data(),
+        data: marginfi::instruction::KaminoWithdraw { amount, flags }.data(),
     };
     ix.accounts.extend(observation_metas);
 
