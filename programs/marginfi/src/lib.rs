@@ -769,21 +769,23 @@ pub mod marginfi {
     pub fn kamino_deposit<'info>(
         ctx: Context<'_, '_, 'info, 'info, KaminoDeposit<'info>>,
         amount: u64,
+        refresh_reserve: Option<bool>,
     ) -> MarginfiResult {
-        kamino::kamino_deposit(ctx, amount)
+        kamino::kamino_deposit(ctx, amount, refresh_reserve)
     }
 
     /// (user) Withdraw from a Kamino pool through a marginfi account
     /// * amount - in the collateral token (NOT liquidity token), in native decimals. Must convert
     ///     from collateral to liquidity token amounts using the current exchange rate.
-    /// * withdraw_all - if true, withdraw the entire mrgn balance (Note: due to rounding down, a
-    ///   deposit and withdraw back to back may result in several lamports less)
+    /// * flags - optional bitflags:
+    ///   - bit 0 (`0x01`): withdraw all
+    ///   - bit 1 (`0x02`): refresh reserve via batch refresh
     pub fn kamino_withdraw<'info>(
         ctx: Context<'_, '_, 'info, 'info, KaminoWithdraw<'info>>,
         amount: u64,
-        withdraw_all: Option<bool>,
+        flags: Option<u8>,
     ) -> MarginfiResult {
-        kamino::kamino_withdraw(ctx, amount, withdraw_all)
+        kamino::kamino_withdraw(ctx, amount, flags)
     }
 
     /// (group admin only) Add a Kamino bank to the group. Pass the oracle and reserve in remaining
