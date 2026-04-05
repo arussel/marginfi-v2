@@ -282,14 +282,20 @@ impl OraclePriceFeedAdapter {
                     .ok_or_else(math_error!())?
                     .checked_div(lst_supply as i128)
                     .ok_or_else(math_error!())?;
-                feed.price.price = adjusted_price.try_into().unwrap();
+                // eva01 patch: saturating cast instead of `.try_into().unwrap()` to
+                // avoid panicking off-chain when stale cached sol_pool/lst_supply
+                // values make the ratio transiently overshoot i64. On-chain reads
+                // are always fresh so this branch never triggers there.
+                feed.price.price = adjusted_price
+                    .clamp(i64::MIN as i128, i64::MAX as i128) as i64;
 
                 let adjusted_ema_price = (feed.ema_price.price as i128)
                     .checked_mul(sol_pool_adjusted_balance as i128)
                     .ok_or_else(math_error!())?
                     .checked_div(lst_supply as i128)
                     .ok_or_else(math_error!())?;
-                feed.ema_price.price = adjusted_ema_price.try_into().unwrap();
+                feed.ema_price.price = adjusted_ema_price
+                    .clamp(i64::MIN as i128, i64::MAX as i128) as i64;
 
                 let price = OraclePriceFeedAdapter::PythPushOracle(feed);
                 Ok(price)
