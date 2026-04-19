@@ -1,9 +1,12 @@
+use crate::{
+    ix_utils::{get_discrim_hash, Hashable},
+    state::marginfi_account::MarginfiAccountImpl,
+    MarginfiError, MarginfiResult,
+};
 use anchor_lang::prelude::*;
 use marginfi_type_crate::types::{
-    LiquidationRecord, MarginfiAccount, ACCOUNT_IN_RECEIVERSHIP, ACCOUNT_IN_DELEVERAGE,
+    LiquidationRecord, MarginfiAccount, ACCOUNT_IN_DELEVERAGE, ACCOUNT_IN_RECEIVERSHIP,
 };
-
-use crate::{check, state::marginfi_account::MarginfiAccountImpl, MarginfiError, MarginfiResult};
 
 /// Close a liquidation record PDA and return rent to the original payer.
 ///
@@ -18,13 +21,6 @@ use crate::{check, state::marginfi_account::MarginfiAccountImpl, MarginfiError, 
 /// - The record must match the account's `liquidation_record` field
 pub fn close_liquidation_record(ctx: Context<CloseLiquidationRecord>) -> MarginfiResult {
     let mut marginfi_account = ctx.accounts.marginfi_account.load_mut()?;
-
-    check!(
-        !marginfi_account.get_flag(ACCOUNT_IN_RECEIVERSHIP)
-            && !marginfi_account.get_flag(ACCOUNT_IN_DELEVERAGE),
-        MarginfiError::IllegalAction,
-        "Cannot close liquidation record while account is in receivership or deleverage"
-    );
 
     // Reset the account's liquidation_record reference
     marginfi_account.liquidation_record = Pubkey::default();
@@ -66,4 +62,10 @@ pub struct CloseLiquidationRecord<'info> {
         } @ MarginfiError::Unauthorized
     )]
     pub record_payer: AccountInfo<'info>,
+}
+
+impl Hashable for CloseLiquidationRecord<'_> {
+    fn get_hash() -> [u8; 8] {
+        get_discrim_hash("global", "marginfi_account_close_liq_record")
+    }
 }
