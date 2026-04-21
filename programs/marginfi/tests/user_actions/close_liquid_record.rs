@@ -1,10 +1,11 @@
+use anchor_lang::prelude::Clock;
 use fixtures::{assert_custom_error, prelude::*};
 use fixed_macro::types::I80F48;
 use fixtures::marginfi_account::MarginfiAccountFixture;
-use marginfi::{errors::MarginfiError, prelude::*};
+use marginfi::errors::MarginfiError;
 use marginfi_type_crate::{
     constants::LIQUIDATION_RECORD_SEED,
-    types::{BankConfigOpt, MarginfiAccount},
+    types::{BankConfigOpt, LiquidationRecord, MarginfiAccount},
 };
 use solana_program_test::*;
 use solana_sdk::{
@@ -15,6 +16,30 @@ use solana_sdk::{
     system_transaction,
     transaction::Transaction,
 };
+
+/// 60 days in seconds (must match the constant in the instruction)
+const INACTIVITY_PERIOD_SECS: i64 = 60 * 24 * 60 * 60;
+
+/// Directly write a timestamp into the liquidation record's most recent entry.
+/// This simulates a past liquidation event without needing a full liquidation cycle.
+async fn set_record_entry_timestamp(
+    test_f: &TestFixture,
+    record_pk: Pubkey,
+    timestamp: i64,
+) {
+    let mut account = {
+        let ctx = test_f.context.borrow_mut();
+        ctx.banks_client
+            .get_account(record_pk)
+            .await
+            .unwrap()
+            .unwrap()
+    };
+    let record =
+        bytemuck::from_bytes_mut::<LiquidationRecord>(&mut account.data.as_mut_slice()[8..]);
+    record.entries[3].timestamp = timestamp;
+    test_f.context.borrow_mut().set_account(&record_pk, &account.into());
+}
 
 /// Helper: create an unhealthy liquidatee with a liquidation record initialized.
 /// Returns (liquidatee, record_pk, payer_pubkey).
@@ -233,7 +258,7 @@ async fn close_liquidation_record_permissionless_caller() -> anyhow::Result<()> 
     // Create a third-party signer (not the record_payer)
     let third_party = Keypair::new();
     {
-        let mut ctx = test_f.context.borrow_mut();
+        let ctx = test_f.context.borrow_mut();
         let blockhash = ctx.banks_client.get_latest_blockhash().await.unwrap();
         let tx = system_transaction::transfer(&ctx.payer, &third_party.pubkey(), 1_000_000_000, blockhash);
         ctx.banks_client.process_transaction(tx).await?;
@@ -394,6 +419,92 @@ async fn close_liquidation_record_fails_wrong_record() -> anyhow::Result<()> {
         let ctx = test_f.context.borrow_mut();
         assert!(ctx.banks_client.get_account(record_a).await?.is_some());
         assert!(ctx.banks_client.get_account(record_b).await?.is_some());
+    }
+
+    Ok(())
+}
+
+/// Closing a record that was recently liquidated (< 60 days) should fail.
+#[tokio::test]
+async fn close_liquidation_record_fails_before_inactivity_period() -> anyhow::Result<()> {
+    let test_f = TestFixture::new(Some(TestSettings::all_banks_payer_not_admin())).await;
+    let (liquidatee, record_pk, payer) = setup_with_liquidation_record(&test_f).await?;
+
+    let now = 1_700_000_000i64;
+    {
+        let ctx = test_f.context.borrow_mut();
+        let mut clock: Clock = ctx.banks_client.get_sysvar().await?;
+        clock.unix_timestamp = now;
+        ctx.set_sysvar(&clock);
+    }
+
+    // Simulate a past liquidation by writing a recent timestamp into the record
+    set_record_entry_timestamp(&test_f, record_pk, now - 100).await;
+
+    // Try to close — should fail (only 100 seconds of inactivity, need 60 days)
+    let close_ix = liquidatee
+        .make_close_liquidation_record_ix(record_pk, payer)
+        .await;
+    {
+        let ctx = test_f.context.borrow_mut();
+        let tx = Transaction::new_signed_with_payer(
+            &[close_ix],
+            Some(&payer),
+            &[&ctx.payer],
+            ctx.banks_client.get_latest_blockhash().await.unwrap(),
+        );
+        let res = ctx
+            .banks_client
+            .process_transaction_with_preflight(tx)
+            .await;
+        assert!(res.is_err());
+        assert_custom_error!(res.unwrap_err(), MarginfiError::IllegalAction);
+    }
+
+    Ok(())
+}
+
+/// Closing a record after 60 days of inactivity should succeed.
+#[tokio::test]
+async fn close_liquidation_record_after_inactivity_period() -> anyhow::Result<()> {
+    let test_f = TestFixture::new(Some(TestSettings::all_banks_payer_not_admin())).await;
+    let (liquidatee, record_pk, payer) = setup_with_liquidation_record(&test_f).await?;
+
+    let liquidation_time = 1_700_000_000i64;
+
+    // Simulate a past liquidation by writing a timestamp into the record
+    set_record_entry_timestamp(&test_f, record_pk, liquidation_time).await;
+
+    // Set clock to 60 days + 1 second after the liquidation
+    {
+        let ctx = test_f.context.borrow_mut();
+        let mut clock: Clock = ctx.banks_client.get_sysvar().await?;
+        clock.unix_timestamp = liquidation_time + INACTIVITY_PERIOD_SECS + 1;
+        ctx.set_sysvar(&clock);
+    }
+
+    // Now close should succeed
+    let close_ix = liquidatee
+        .make_close_liquidation_record_ix(record_pk, payer)
+        .await;
+    {
+        let ctx = test_f.context.borrow_mut();
+        let tx = Transaction::new_signed_with_payer(
+            &[close_ix],
+            Some(&payer),
+            &[&ctx.payer],
+            ctx.banks_client.get_latest_blockhash().await.unwrap(),
+        );
+        ctx.banks_client
+            .process_transaction_with_preflight(tx)
+            .await?;
+    }
+
+    // Verify record account is closed
+    {
+        let ctx = test_f.context.borrow_mut();
+        let account = ctx.banks_client.get_account(record_pk).await?;
+        assert!(account.is_none(), "record account should be closed");
     }
 
     Ok(())

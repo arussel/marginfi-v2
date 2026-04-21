@@ -1,4 +1,5 @@
 use crate::{
+    check,
     ix_utils::{get_discrim_hash, Hashable},
     state::marginfi_account::MarginfiAccountImpl,
     MarginfiError, MarginfiResult,
@@ -7,6 +8,9 @@ use anchor_lang::prelude::*;
 use marginfi_type_crate::types::{
     LiquidationRecord, MarginfiAccount, ACCOUNT_IN_DELEVERAGE, ACCOUNT_IN_RECEIVERSHIP,
 };
+
+/// 60 days in seconds
+const INACTIVITY_PERIOD_SECS: i64 = 60 * 24 * 60 * 60;
 
 /// Close a liquidation record PDA and return rent to the original payer.
 ///
@@ -19,7 +23,30 @@ use marginfi_type_crate::types::{
 /// - The marginfi account must NOT be in receivership or deleverage
 ///   (no active liquidation in progress)
 /// - The record must match the account's `liquidation_record` field
+/// - The record must be inactive for at least 60 days (derived from the most
+///   recent `LiquidationEntry.timestamp`), OR never have been liquidated at all
+///   (all entry timestamps are zero).
 pub fn close_liquidation_record(ctx: Context<CloseLiquidationRecord>) -> MarginfiResult {
+    let record = ctx.accounts.liquidation_record.load()?;
+
+    let last_activity = record
+        .entries
+        .iter()
+        .map(|e| e.timestamp)
+        .max()
+        .unwrap_or(0);
+
+    // Records that were never used (all timestamps zero) can be closed immediately.
+    // Otherwise, require 60 days of inactivity.
+    if last_activity > 0 {
+        let now = Clock::get()?.unix_timestamp;
+        check!(
+            now.saturating_sub(last_activity) >= INACTIVITY_PERIOD_SECS,
+            MarginfiError::IllegalAction,
+            "Liquidation record must be inactive for at least 60 days"
+        );
+    }
+
     let mut marginfi_account = ctx.accounts.marginfi_account.load_mut()?;
 
     // Reset the account's liquidation_record reference
