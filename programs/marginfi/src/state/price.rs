@@ -284,7 +284,8 @@ impl OraclePriceFeedAdapter {
                     .ok_or_else(math_error!())?;
                 feed.price.price = adjusted_price
                     .try_into()
-                    .map_err(|_| error!(MarginfiError::MathError))?;
+                    .ok()
+                    .ok_or_else(math_error!())?;
 
                 let adjusted_ema_price = (feed.ema_price.price as i128)
                     .checked_mul(sol_pool_adjusted_balance as i128)
@@ -293,7 +294,8 @@ impl OraclePriceFeedAdapter {
                     .ok_or_else(math_error!())?;
                 feed.ema_price.price = adjusted_ema_price
                     .try_into()
-                    .map_err(|_| error!(MarginfiError::MathError))?;
+                    .ok()
+                    .ok_or_else(math_error!())?;
 
                 let price = OraclePriceFeedAdapter::PythPushOracle(feed);
                 Ok(price)
